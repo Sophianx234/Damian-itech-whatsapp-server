@@ -2,9 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
-import qrcode from 'qrcode-terminal';
+import QRCode from 'qrcode'; // Replaced qrcode-terminal with native qrcode
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
+
+// Global state to hold the QR code for the /setup-qr route
+let currentQR = "Waiting for QR code generation...";
 
 // Load environment variables from .env file
 dotenv.config();
@@ -25,6 +28,49 @@ app.get('/keep-alive', (req, res) => {
         message: 'awake',
         timestamp: new Date().toISOString()
     });
+});
+
+// --- QR Setup Endpoint ---
+// Public endpoint to scan the WhatsApp QR code visually
+app.get('/setup-qr', (req, res) => {
+    if (currentQR.startsWith('data:image')) {
+        return res.send(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>WhatsApp Setup</title>
+                <style>
+                    body { background-color: #1a1a1a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; }
+                    img { border: 10px solid white; border-radius: 8px; margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <h1>Scan to Link WhatsApp</h1>
+                <img src="${currentQR}" alt="WhatsApp QR Code" />
+                <p>Refresh the page if it expires.</p>
+            </body>
+            </html>
+        `);
+    } else {
+        return res.send(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>WhatsApp Setup</title>
+                <style>
+                    body { background-color: #1a1a1a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <h1>${currentQR}</h1>
+            </body>
+            </html>
+        `);
+    }
 });
 
 // --- Security Middleware ---
@@ -70,15 +116,21 @@ const client = new Client({
     }
 });
 
-// Event: Generate and display QR code in terminal
-client.on('qr', (qr) => {
-    console.log('Scan the QR code below to link your WhatsApp account:');
-    qrcode.generate(qr, { small: true });
+// Event: Generate and capture QR code as Base64 Image
+client.on('qr', async (qr) => {
+    console.log('QR Code generated. Go to /setup-qr to scan it.');
+    try {
+        currentQR = await QRCode.toDataURL(qr);
+    } catch (err) {
+        console.error('Failed to generate QR code image:', err);
+        currentQR = "Error generating QR code.";
+    }
 });
 
 // Event: Client is ready
 client.on('ready', () => {
     console.log('WhatsApp Gateway is ready and connected!');
+    currentQR = "Client is already connected. No QR needed.";
 });
 
 // Event: Authentication successful
