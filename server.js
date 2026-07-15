@@ -8,6 +8,8 @@ import rateLimit from 'express-rate-limit';
 
 // Global state to hold the QR code for the /setup-qr route
 let currentQR = "Waiting for QR code generation...";
+// Global state to track the WhatsApp client status
+let clientStatus = 'INITIALIZING';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -73,6 +75,15 @@ app.get('/setup-qr', (req, res) => {
     }
 });
 
+// --- Status Endpoint ---
+// Public health-check endpoint to monitor the WhatsApp client state
+app.get('/status', (req, res) => {
+    res.json({
+        status: clientStatus,
+        timestamp: new Date().toISOString()
+    });
+});
+
 // --- Security Middleware ---
 // Rate Limiter: Max 5 OTP requests per minute per IP
 const otpLimiter = rateLimit({
@@ -118,7 +129,8 @@ const client = new Client({
 
 // Event: Generate and capture QR code as Base64 Image
 client.on('qr', async (qr) => {
-    console.log('QR Code generated. Go to /setup-qr to scan it.');
+    clientStatus = 'WAITING_FOR_QR';
+    console.log(`[Status: ${clientStatus}] QR Code generated. Go to /setup-qr to scan it.`);
     try {
         currentQR = await QRCode.toDataURL(qr);
     } catch (err) {
@@ -129,23 +141,27 @@ client.on('qr', async (qr) => {
 
 // Event: Client is ready
 client.on('ready', () => {
-    console.log('WhatsApp Gateway is ready and connected!');
+    clientStatus = 'CONNECTED_AND_READY';
+    console.log(`[Status: ${clientStatus}] WhatsApp Gateway is ready and connected!`);
     currentQR = "Client is already connected. No QR needed.";
 });
 
 // Event: Authentication successful
 client.on('authenticated', () => {
-    console.log('WhatsApp Authentication successful.');
+    clientStatus = 'AUTHENTICATED';
+    console.log(`[Status: ${clientStatus}] WhatsApp Authentication successful.`);
 });
 
 // Event: Authentication failed
 client.on('auth_failure', msg => {
-    console.error('WhatsApp Authentication failed:', msg);
+    clientStatus = 'AUTH_FAILED';
+    console.error(`[Status: ${clientStatus}] WhatsApp Authentication failed:`, msg);
 });
 
 // Event: Client disconnected
 client.on('disconnected', (reason) => {
-    console.log('WhatsApp Client was logged out or disconnected:', reason);
+    clientStatus = 'DISCONNECTED';
+    console.log(`[Status: ${clientStatus}] WhatsApp Client was logged out or disconnected:`, reason);
 });
 
 // Initialize client
